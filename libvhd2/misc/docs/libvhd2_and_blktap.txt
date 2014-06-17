@@ -1,0 +1,56 @@
+
+
+A quick summary of what I've done to make XenClient work with a new libvhd2.
+
+
+1. -------------------
+Took a look at the BlockTap code and how it interacts with the existing libvhd.
+It seems that it implements a kind of home-made asynchronous file IO scheduler plus bits from standard libaio. Looks pretty convoluted.
+Moreover, because libaio deals with standard file descriptors for asynchronous IO, the existing libvhd has to provide a file descriptor to tapdisk.
+On the other hand, VHD file isn't a normal linear file, it has embedded metadata, like Headers, BAT, bitmaps etc. And it can be non-liear, i.e. consecutive logical sector numbers 
+don't have to correspond to the consecutive physical sectors in the VHD file.
+That's the reason why libvhd has to expose all its internals like headers and metadata and its API is a mess. Moreover, tapdisk (see "block-vhd.c") is implementing a lot of the VHD file
+metadata handling, i.e. the same functionality of metadata caching, accessing BAT and bitmaps exists both in libvhd and tapdisk. Of cause, it is implemented absolutely differently.
+It is because tapdisk asynchronous FileIO engine can use VHD file handle to access VHD data only, and it has to understand where these data are situated; in order to do this, it has to understand VHD metadata.
+For efficient metadata acces it has to provide proper caching.
+Thus, a part of the  tapdisk providing asynchronous VHD access and the existing libvhd are so tightly coupled, that it isn't possible to separate them.
+
+1.1 -------------------
+I took a look a the data access patterns when booting XenClient and working with WinXP virtual machine.
+It seems that: (it also may be not very precise)
+
+- I didn't find any attemps to open Differencing VHD files; All access was to the Fixed and Dynamic ones. Probably I didn't execute appropriate use cases.
+- there is a huge number of small reads and writes about 4-16K size (is it related to 4K page size?). Actually, almost all data access consists of such small reads/writes. this
+makes file access very inefficient without caching.
+- tapkisk/libvhd make quite strange assumtions about number of sectors in the VHD file. It isn't documented anywhere and seem to be a "gray area" in the VHD specs. VHD footer contains at least 2 different 
+fields, which can be used for finding out number of addressable VHD sectors: "DiskGeometry"(CHS) and "CurrentSize". CHS value gives the exact number of sectors, but it turns out that "CurrentSize"
+(at least for tapdisk-created VHDs) can contain value rounded up to 2MB block size. Current libvhd uses bigger value from "CurrentSize", which is slightly disappoiniting, because allows you addressing
+sectors outside CHS range. 
+
+1.2 -------------------
+For the sake of experiument I have hacked tapdisk to use synckronous libvhd API to read/write sectors. Seemed to work, though I had to enable file cacheing, because it was too slow otherwise 
+(too many small reads and writes).
+
+
+2 -------------------
+Using new libvhd2 and tapdisk.
+
+I have hacked tapdisk to use libvhd2 instead of legacy libvhd and it seemed wo work in general. 
+
+- it looks that libvhd2 can't be simply used instead of libvhd in the area where it relies on asynchronous fileIO and libaio. I mentioned earlier that libaio needs a normal file 
+descriptor, while libvhd2 can't provide it, because it hides all inside and exposes simple synchronous API. The user of this API doesn't need to and can't know anything about 
+VHD metadata handling. 
+- Thus, I took tapdisk's synchronous "block driver" code block-ram.c and modified it to use libvhd2. I also had to enable VHD file caching because of the huge amout of small reads/writes.
+- everything seems to work, at least XenClient boots, I can start WinXP virtual machine and do various things in it. The performance looks OK, though libvhd2 is optimised to
+handle large sequential read/writes.
+- I haven't modified "libvhd utils" that create/coalesce/do weird stuff with VHD files, because I haven't found appropriate actions that would execute these use cases.
+
+
+
+
+
+
+
+
+
+

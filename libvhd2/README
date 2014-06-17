@@ -1,0 +1,81 @@
+
+============= TRIM ==========
+[+] disable appending "fully mapped blocks" when TRIM is enabled (Dyn. &  Diff VHDs)
+[+] ?? Dyn VHDs: When TRIM is enabled, read zeros for the sectors with '0' bits in the bitmap
+[+] int CVhdFileDiff::ReadSectors(...)  place common code to the base class! make specialised internal functions virtual! (DoReadSectors)
+
+
+
+============= Encryption ==========
+- existing vhdlib seems to use local  "libxts-aes", that evan has its own aes implementation.
+- OpenSSL seems to support xts-aes, but since v 1.1 , which isn't installed yet.
+- Do we need to use the same mechanism of xts-aes, as legacy libvhd uses ?
+- Do we need to encrypt/decrypt on the fly ?
+- How do we encrypst/decrypt data/metadata ? the same way, using the same key ?
+- what happens to the VHD Head - following chain encryption ? Does the diff. VHD inherits parent's key ?
+
+
+
+
+- print "this" when creating an object of the CVhdFilebase. see "DoCreateFromFile()"
+- use 64-bit sector numbers ??
+
+
+[+] make sectors coalescing more efficient - find long sequence of '1's in the bitmap. The same is for opening in "pure mode"
+- revisit the dynamic/diff files write/add block and bitmaps filled with '1'. Consider crashing. write Data first, metadata-later ?
+[+] make better handling opening diff. file in PURE mode, not sector-by sector copy, but bigger chunks ?
+[+] implement "lazy" parent opening for a differencing VHD ?
+- see original libvhd about validating header & footer & other stuff! Implement smilar checks
+- Do we need to check loops while opening DiffVhds ?   Check it on Vistual PC
+[-] for "PureMode" Diff. Vhd we can have a "block bitmap" where whole block state (mapped/not) is recorded.
+
+
+============= VHD creation ==========
+[-] Take into account CHS alignemnt described in the blog ?  James said no; Also, API provides creating a file with CHS values
+   -!! see also VHDX specs, maybe it is better there? (none, they don't use such concept)
+
+
+[+] Sort out various versions of ::Flush, better error handling; exceptions ?
+[+] CSectorMapper states are a bit of a mess. try to make better transitions
+- bitmaps bytes endianness. What is the better way to deal with it?
+- Data/Metadata invalidation ? How does it look ? Use cases.
+[+] Optimise CBitVector::CheckFill with my new function ?
+[+] Make CBitVector::FilledWith() for a subvector ??
+
+
+- file locking withing the same process... Locks seem to work only for different processes; what to do ?
+- handle mapper. Make it better ? atomic operations, "ownership" semantics etc?
+- in bool TVhdFooter::IsValid() check CHS against recorded disk size ? Taking into account headers/footers etc.
+[-] use exceptions to process nested methods calls, like  ChdFileDynamic::Open()?
+
+- BAT caching. Make it paged ? to minimize potential media hit?
+    - Make a dependency on CVhdFileBase ??? to avoid having a file descriptor ???
+    - introduce something like RawRead in CVhdFileBase  ??
+    ! James says that using mmpap should be fine
+
+[+] open VHD RO and bitmaps - don't need them ????
+- use hashmap in sector bitmaps cache ??
+
+
+
+- introduce CBase object with a pure virtual destructor ??
+[+] work out potential problems with exceptions that can escape into C api. (catch(...) ?)
+
+
+--- Debug / release builds
+1. In release mode define 'NDEBUG' symbol (including makefile)
+2. in Debug mode define '_DEBUG' symbol (including makefile)
+
+
+
+--- ??? Implement Split Hard Disk files support (see specs).  *.v01, *.v02
+
+
+--- work out locking strategy for VHD chains and tests for it
+
+[+] make use of normal UUID library for footer, header etc.
+
+
+--- it looks like TapDisk creates slightly different VHD version (and uses different encoding of the unicode names.)
+    see vhd_creator_tapdisk() and vhd_header_decode_parent()
+    !! need some differencing VHDs from TapDisk to test on

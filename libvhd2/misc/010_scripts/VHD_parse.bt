@@ -1,0 +1,193 @@
+//--------------------------------------
+//--- 010 Editor v4.0.1 Binary Template
+//
+// File:
+// Author: DmitryL
+// Revision:
+// Purpose: Parsing VirtualPC *.vhd files
+//--------------------------------------
+
+const uint  KSecSize = 512;     //-- default media sector size, bytes
+
+//-- usable VHD types
+const uint32 KDskType_Fixed     = 2; //-- fixed disk
+const uint32 KDskType_Dynamic   = 3; //-- dymnamic disk
+const uint32 KDskType_Diff      = 4; //-- differencing disk
+
+
+
+//--- vhd disk geometry structure
+struct TDiskGeometry
+{
+    ushort  Cylinder;
+    uchar   Heads;
+    uchar   SectPerTrack;
+};
+
+//--- vhd footer structure
+typedef struct 
+{
+    char    Cookie[8];
+    uint32  Features <format=hex>;
+    uint32  ff_Version <format=hex>;
+    uint64  DataOffset <format=hex>; 
+    uint32  TimeStamp <format=hex>;
+    char    CreatorApp[4];
+    uint32  CreatorVer <format=hex>;
+    uint32  CreatorHostOs <format=hex>;
+    uint64  OrigSize ; 
+    uint64  CurrSize ; 
+    TDiskGeometry DiskGeometry <read=DisplayDiskGeometry>;//-- display CHS values
+    uint32  DiskType <read=DisplayDiskType>;   
+    uint32  CheckSum <format=hex>;
+    uchar   UUID[16];
+    uchar   SavedState;
+    uchar   Reserved[427];
+
+} TVhd_Footer;
+
+//--- Vhd Parent locator structure
+struct TVhd_ParentLocator
+{
+    uint32  Platform_Code <format=hex>;
+    uint32  Platform_DataSpace ;
+    uint32  Platform_DataLen;
+    uint32  Reserved;
+    uint64  Platform_DataOffset <format=hex>; 
+};
+
+//--- vhd disk header structure (for Dynamic and Diff disks)
+struct TVhd_Header
+{
+    char    Cookie[8];
+    uint64  DataOffset <format=hex>; 
+    uint64  BAT_Offset <format=hex>;
+    uint32  HeaderVer <format=hex>; 
+    uint32  MaxTableEntries ; 
+    uint32  BlockSize; 
+    uint32  CheckSum <format=hex>; 
+    uchar   Parent_UUID[16];
+    uint32  Parent_TimeStamp; 
+    uint32  Reserved1;
+    uchar   ParentUName[512];
+    //uchar   ParentUName[512] <read=DecodeUnicodeName>; //-- UNICODE decoder won't work properly for long names
+    
+    TVhd_ParentLocator ParentLoc[8];
+    
+    uchar   Reserved2[256];
+    
+};
+
+
+//#########################################################
+BigEndian(); //-- VHDs are big endian.
+
+//-- 1. read VHD footer; this is the last sector of the file
+FSeek(FileSize() - KSecSize);
+TVhd_Footer vhdFooter;
+
+//-- 2. parse VHD structure depending on the disk type
+if(vhdFooter.DiskType == KDskType_Fixed)
+{
+    //===== Fixed disk
+    Printf("Fixed VHD parsed ok.\n");
+    return 0;
+}
+else
+if(vhdFooter.DiskType == KDskType_Dynamic || vhdFooter.DiskType == KDskType_Diff)
+{
+    //===== Dynamic Disk
+    Printf("Dynamic VHD\n");
+
+    //-- dynamic disk's footer copy at the beginning of the file
+    FSeek(0);    
+    TVhd_Footer vhdFooterCopy; //-- assume here that it is the same as footer
+
+    //-- locate Dynamic disk header (no validation here)
+    FSeek(vhdFooterCopy.DataOffset);
+    TVhd_Header vhdHeader;  
+
+    //-- BAT 
+    FSeek(vhdHeader.BAT_Offset);
+    const uint32 nBatEntries = vhdHeader.MaxTableEntries; //-- round it up to the sector boundary ???
+    uint32 BAT[nBatEntries] ;
+
+
+    return 0;
+}
+else
+if(vhdFooter.DiskType == KDskType_Diff)
+{
+    //===== Differencing disk
+    Printf("Differencing VHD\n");
+    Warning( "Parsing not implemented yet!n");
+    return 0;
+}
+/*
+else
+{
+    Warning( "Invalid disk type: %d !!!\n",  vhdFooter.DiskType);
+    return -1;
+}
+*/
+
+//#########################################################
+//-- just prints CHS values
+string DisplayDiskGeometry(TDiskGeometry &val)
+{
+    string s;
+    SPrintf( s, "CHS=%d:%d:%d",  val.Cylinder, val.Heads, val.SectPerTrack);
+    return s;
+}
+
+//-- display disk type
+string DisplayDiskType(uint32 val)
+{
+    string s;
+    switch(val)
+    {
+    case 0: 
+    SPrintf( s, "0: none");
+    break;
+
+    case 1: 
+    SPrintf( s, "1: Deprecated!");
+    break;
+
+    case 2: 
+    SPrintf( s, "2: Fixed");
+    break;
+
+    case 3: 
+    SPrintf( s, "3: Dynamic");
+    break;
+
+    case 4: 
+    SPrintf( s, "4: Diff");
+    break;
+
+    };
+
+    //SPrintf( s, "CHS=%d:%d:%d",  val.Cylinder, val.Heads, val.SectPerTrack);
+
+
+    return s;
+}
+
+
+//=== decode UNICODE string 
+/*
+string DecodeUnicodeName(uchar arr[])
+{
+    Printf("\n123");
+    //Printf("%s", inUnicode);
+
+    local char strASCII[256];
+    ConvertUNICODEToASCIIW(64, inUnicode, strASCII);
+    
+    //Printf(strAscii);
+
+    string s = strASCII;
+    return s;
+}
+*/
